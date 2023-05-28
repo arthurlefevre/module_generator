@@ -1,5 +1,8 @@
 import { Observer } from "rxjs";
-import { Module, ModuleStatus } from "./utils/Modules";
+import { Module } from "./utils/Modules";
+import { ModuleStatus } from "./utils/ModuleStatus";
+import { Context, Hook } from "./utils/Hooks";
+import { AwaitedReturnType } from "./utils/typesHelper";
 
 async function main(): Promise<string> {
   console.log("Running main");
@@ -13,7 +16,21 @@ function sleep(): Promise<void> {
   });
 }
 
-const m = new Module("test", main, [sleep]);
+async function printMainValue(c: Context<AwaitedReturnType<typeof main>>) {
+  console.log(c);
+}
+
+const h: Hook<AwaitedReturnType<typeof main>> = {
+  run: printMainValue,
+  onState: ModuleStatus.MAIN_DONE,
+};
+
+const h2: Hook<AwaitedReturnType<typeof main>> = {
+  run: printMainValue,
+  onState: ModuleStatus.RUNNING,
+};
+
+const m = new Module("test", main, [sleep], [h, h2]);
 const m3 = new Module("test", main, []);
 const m2 = new Module("test2", main, [m, m3]);
 

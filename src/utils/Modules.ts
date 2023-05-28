@@ -1,4 +1,7 @@
 import { Observer, Subject } from "rxjs";
+import { ModuleStatus } from "./ModuleStatus";
+import { AwaitedReturnType } from "./typesHelper";
+import { Context, Hook } from "./Hooks";
 
 /**
  *  Base class for the module like operation
@@ -13,22 +16,37 @@ export class Module<
   private _mainResult: AwaitedReturnType<Main> | undefined;
   private _dependencies: BaseDependency<Main>[];
   private _status: Subject<ModuleStatus> = new Subject();
-  private _statusSnapshot!: ModuleStatus;
+  private _statusSnapshot: ModuleStatus = ModuleStatus.INITIALIZED;
+  private _hooks: Hook<AwaitedReturnType<Main>>[];
 
   constructor(
     id: string,
     main: PromiseMainMethod<Main>,
-    dependencies: BaseDependency<PromiseMainMethod<Main>>[]
+    dependencies: BaseDependency<PromiseMainMethod<Main>>[] = [],
+    hooks: Hook<AwaitedReturnType<Main>>[] = []
   ) {
     this.id = id;
     this._main = main;
     this._dependencies = dependencies;
-    this.setStatus(ModuleStatus.INITIALIZED);
+    this._hooks = hooks;
+    this._status.next(ModuleStatus.INITIALIZED);
   }
 
-  private setStatus(status: ModuleStatus) {
+  private async setStatus(status: ModuleStatus) {
     this._statusSnapshot = status;
     this._status.next(status);
+    await Promise.allSettled(
+      this._hooks
+        .filter((h) => h.onState === this._statusSnapshot)
+        .map((h) => h.run(this.context))
+    );
+  }
+
+  private get context(): Context<AwaitedReturnType<Main>> {
+    return {
+      state: this._statusSnapshot,
+      mainResult: this._mainResult,
+    };
   }
 
   get status(): {
@@ -49,23 +67,23 @@ export class Module<
     ...args: Parameters<Main>
   ): Promise<AwaitedReturnType<PromiseMainMethod<Main>> | null> {
     try {
-      this.setStatus(ModuleStatus.RUNNING);
+      await this.setStatus(ModuleStatus.RUNNING);
       this._mainResult = await this._main.apply(this._main, args);
-      this.setStatus(ModuleStatus.MAIN_DONE);
+      await this.setStatus(ModuleStatus.MAIN_DONE);
       return this._mainResult as AwaitedReturnType<PromiseMainMethod<Main>>;
     } catch (e: unknown) {
-      this.setStatus(ModuleStatus.ERROR);
+      await this.setStatus(ModuleStatus.ERROR);
       return null;
     }
   }
 
   async runDependencies(): Promise<PromiseSettledResult<any>[]> {
     if (this._statusSnapshot === ModuleStatus.MAIN_DONE) {
-      this.setStatus(ModuleStatus.RUNNING_DEPENDENCIES);
+      await this.setStatus(ModuleStatus.RUNNING_DEPENDENCIES);
       const res = await Promise.allSettled(
         this._dependencies.map((d) => this.runDependency(d))
       );
-      this.setStatus(ModuleStatus.DONE);
+      await this.setStatus(ModuleStatus.DONE);
       this._status.complete();
       return res;
     } else {
@@ -102,16 +120,3 @@ export type BaseDependencyMethod<Main extends () => Promise<any>> = (
 export type BaseDependency<Main extends () => Promise<any>> =
   | BaseDependencyMethod<Main>
   | Module<(arg: AwaitedReturnType<Main>) => Promise<any>>;
-
-export enum ModuleStatus {
-  INITIALIZED = 0,
-  RUNNING = 1,
-  MAIN_DONE = 2,
-  RUNNING_DEPENDENCIES = 4,
-  DONE = 8,
-  ERROR = 16,
-}
-
-type AwaitedReturnType<T extends (...args: any[]) => Promise<any>> = Awaited<
-  ReturnType<T>
->;
