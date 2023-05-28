@@ -3,19 +3,22 @@ import { Observer, Subject } from "rxjs";
 /**
  *  Base class for the module like operation
  */
-export class Module<Main extends (...args: any[]) => Promise<any>> {
+export class Module<
+  Main extends (...args: any[]) => Promise<any> = (
+    ...args: any[]
+  ) => Promise<any>
+> {
   public id: string;
-  // public status: ModuleStatus = ModuleStatus.INITIALIZED;
   private _main: Main;
   private _mainResult: AwaitedReturnType<Main> | undefined;
-  private _dependencies: BaseDependencyMethod<Main>[];
+  private _dependencies: BaseDependency<Main>[];
   private _status: Subject<ModuleStatus> = new Subject();
   private _statusSnapshot!: ModuleStatus;
 
   constructor(
     id: string,
     main: PromiseMainMethod<Main>,
-    dependencies: BaseDependencyMethod<PromiseMainMethod<Main>>[]
+    dependencies: BaseDependency<PromiseMainMethod<Main>>[]
   ) {
     this.id = id;
     this._main = main;
@@ -56,26 +59,32 @@ export class Module<Main extends (...args: any[]) => Promise<any>> {
     }
   }
 
-  async runDependencies(): Promise<
-    PromiseSettledResult<BaseDependencyMethod<PromiseMainMethod<Main>>>[]
-  > {
-    this.setStatus(ModuleStatus.RUNNING_DEPENDENCIES);
-    const res = await Promise.allSettled(this._dependencies);
-    this.setStatus(ModuleStatus.DONE);
-    this._status.complete();
-    return res;
+  async runDependencies(): Promise<PromiseSettledResult<any>[]> {
+    if (this._statusSnapshot === ModuleStatus.MAIN_DONE) {
+      this.setStatus(ModuleStatus.RUNNING_DEPENDENCIES);
+      const res = await Promise.allSettled(
+        this._dependencies.map((d) => this.runDependency(d))
+      );
+      this.setStatus(ModuleStatus.DONE);
+      this._status.complete();
+      return res;
+    } else {
+      throw new Error("The module is already in error");
+    }
+  }
+
+  private async runDependency(dependency: BaseDependency<Main>): Promise<any> {
+    if (dependency instanceof Module) {
+      const res = await dependency.run(
+        this._mainResult as AwaitedReturnType<Main>
+      );
+      await dependency.runDependencies();
+      return res;
+    } else {
+      return await dependency(this._mainResult as AwaitedReturnType<Main>);
+    }
   }
 }
-
-// export type BaseMainMethod = NotVoid<
-//   (...args: any[]) => Promise<NonNullable<any>>
-// >;
-type BasePromiseFunction = () => Promise<unknown>;
-// type BaseMainMethod<T extends BasePromiseFunction = BasePromiseFunction> = (
-//   ...args: any[]
-// ) => Awaited<ReturnType<T>> extends void | null | undefined
-//   ? never
-//   : ReturnType<T>;
 
 type PromiseMainMethod<T extends Function> = T extends () => Promise<infer R>
   ? void extends R
@@ -87,12 +96,12 @@ type PromiseMainMethod<T extends Function> = T extends () => Promise<infer R>
     : T
   : never;
 
-type NotVoid<T extends Function> = (() => Promise<void>) extends T ? never : T;
-type NotVoidValue<T extends any> = void extends T ? never : T;
-
 export type BaseDependencyMethod<Main extends () => Promise<any>> = (
   arg: AwaitedReturnType<Main>
 ) => Promise<any>;
+export type BaseDependency<Main extends () => Promise<any>> =
+  | BaseDependencyMethod<Main>
+  | Module<(arg: AwaitedReturnType<Main>) => Promise<any>>;
 
 export enum ModuleStatus {
   INITIALIZED = 0,
