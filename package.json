@@ -1,0 +1,19 @@
+{
+  "name": "module_creator",
+  "version": "0.0.1",
+  "description": "An utils library to create codified modules",
+  "main": "lib/index.js",
+  "author": "Arthur LEFEVRE <lefevre.arthur@outlook.fr>",
+  "license": "MIT",
+  "private": false,
+  "devDependencies": {
+    "typescript": "^5.0.4"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "dependencies": {
+    "rxjs": "^7.8.1"
+  }
+}
