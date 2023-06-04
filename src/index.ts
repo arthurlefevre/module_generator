@@ -16,16 +16,16 @@ function sleep(): Promise<void> {
   });
 }
 
-async function printMainValue(c: Context<AwaitedReturnType<typeof main>>) {
+async function printMainValue<T extends Module>(c: Context<T>) {
   console.log(c);
 }
 
-const h: Hook<AwaitedReturnType<typeof main>> = {
+const h: Hook<Module<typeof main>> = {
   run: printMainValue,
   onState: ModuleStatus.MAIN_DONE,
 };
 
-const h2: Hook<AwaitedReturnType<typeof main>> = {
+const h2: Hook<Module<typeof main>> = {
   run: printMainValue,
   onState: ModuleStatus.RUNNING,
 };

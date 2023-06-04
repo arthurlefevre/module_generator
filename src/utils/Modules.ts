@@ -4,7 +4,20 @@ import { AwaitedReturnType } from "./typesHelper";
 import { Context, Hook } from "./Hooks";
 
 /**
- *  Base class for the module like operation
+ * Base class for the module like operation
+ * Takes an id to identify the module in log
+ * Takes dependencies and hooks in the constructor
+ *
+ * Resolve aroung the Main passed as Template parameter which is an async function
+ * The Main is populated by the type of main in the constructor
+ * The main in the parameter is enforced to never return void | undefined | null, so that dependencies always have something passed to them in the arg
+ *
+ * Follow a state machine ModelStatus, with Hook available for every state except for ModelStatus.INITIALIZED
+ * Use {@link Module#state} to get a Observable for subscription
+ * If you wish to obtain a snapshot of the state, use get stateSnapshot()
+ * Hooks are passed in the constructor
+ *
+ * @example const m = new Module('', () => Promise<string>); (typeof m) === 'Module<() => Promise<string>>'
  */
 export class Module<
   Main extends (...args: any[]) => Promise<any> = (
@@ -17,18 +30,18 @@ export class Module<
   private _dependencies: BaseDependency<Main>[];
   private _status: Subject<ModuleStatus> = new Subject();
   private _statusSnapshot: ModuleStatus = ModuleStatus.INITIALIZED;
-  private _hooks: Hook<AwaitedReturnType<Main>>[];
+  private _hooks: Hook<Module>[];
 
   constructor(
     id: string,
     main: PromiseMainMethod<Main>,
     dependencies: BaseDependency<PromiseMainMethod<Main>>[] = [],
-    hooks: Hook<AwaitedReturnType<Main>>[] = []
+    hooks: Hook<Module<Main>>[] = []
   ) {
     this.id = id;
     this._main = main;
     this._dependencies = dependencies;
-    this._hooks = hooks;
+    this._hooks = hooks as Hook<Module>[];
     this._status.next(ModuleStatus.INITIALIZED);
   }
 
@@ -42,10 +55,11 @@ export class Module<
     );
   }
 
-  private get context(): Context<AwaitedReturnType<Main>> {
+  private get context(): Context<Module<Main>> {
     return {
       state: this._statusSnapshot,
       mainResult: this._mainResult,
+      id: this.id,
     };
   }
 
